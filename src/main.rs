@@ -19,6 +19,25 @@ fn discover_git_repos(dir: &Path) -> Result<Vec<git2::Repository>, io::Error> {
     Ok(repos)
 }
 
+fn process_repo(repo: git2::Repository) -> Result<(), io::Error> {
+    if let git2::RepositoryState::Clean = repo.state() {
+        if let Ok(statuses) = repo.statuses(None) {
+            if statuses.iter().all(|status_entry| {
+                status_entry.status().is_empty() || status_entry.status().is_ignored()
+            }) {
+                println!("Clean git repo at {:?}", repo.path());
+            } else {
+                println!("Unclean git repo at {:?}", repo.path());
+            }
+        }
+        Ok(())
+    } else {
+        // Ignore repos that are not clean
+        println!("Unclean git repo at {:?}", repo.path());
+        Ok(())
+    }
+}
+
 fn main() -> Result<(), io::Error> {
     let dir = match env::args().nth(1) {
         Some(dir) => dir,
@@ -30,7 +49,7 @@ fn main() -> Result<(), io::Error> {
     }
     let repos = discover_git_repos(path)?;
     for repo in repos {
-        println!("Found git repo at {:?}", repo.path())
+        process_repo(repo)?;
     }
     Ok(())
 }
