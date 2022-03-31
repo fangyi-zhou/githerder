@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .arg("-C")
                 .arg(workdir)
                 .arg("pull")
-                .stdout(Stdio::piped())
+                .stdout(Stdio::inherit())
                 .output()
                 .await
         })
