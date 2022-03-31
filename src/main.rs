@@ -1,4 +1,11 @@
+extern crate async_executor;
+extern crate async_process;
+extern crate futures;
 extern crate git2;
+use async_executor::Executor;
+use async_process::{Command, Stdio};
+use futures::executor::block_on;
+use futures::future::join_all;
 use git2::{Repository, RepositoryState};
 use std::env;
 use std::error::Error;
@@ -38,7 +45,7 @@ fn get_workdir_for_clean_repos(repo: &Repository) -> Result<Option<&Path>, Box<d
         }
     } else {
         // Ignore repos that are not clean
-        println!("Skippuing unclean git repo at {:?}", repo.path());
+        println!("Skipping unclean git repo at {:?}", repo.path());
         Ok(None)
     }
 }
@@ -57,8 +64,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .filter_map(|repo| get_workdir_for_clean_repos(repo).ok().flatten())
         .collect();
-    for workdir in workdirs.iter() {
-        println!("Workdir to pull: {}", workdir.display());
-    }
+    let exe = Executor::new();
+    let tasks = workdirs.iter().map(|workdir| {
+        exe.spawn(async move {
+            println!("Pulling {}", workdir.display());
+            Command::new("git")
+                .arg("-C")
+                .arg(workdir)
+                .arg("pull")
+                .stdout(Stdio::piped())
+                .output()
+                .await
+        })
+    });
+    block_on(exe.run(join_all(tasks)));
     Ok(())
 }
