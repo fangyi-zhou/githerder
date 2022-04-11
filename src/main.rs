@@ -73,6 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .arg(workdir)
                 .arg("pull")
                 .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
                 .output()
                 .await
         })
