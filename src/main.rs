@@ -2,8 +2,8 @@ extern crate async_executor;
 extern crate async_process;
 extern crate futures;
 extern crate git2;
-use async_executor::Executor;
-use async_process::{Command, Stdio};
+use async_executor::{Executor, Task};
+use async_process::{Command, Output, Stdio};
 use futures::executor::block_on;
 use futures::future::join_all;
 use git2::{Repository, RepositoryState};
@@ -28,26 +28,57 @@ fn discover_git_repos(dir: &Path) -> Result<Vec<Repository>, io::Error> {
     Ok(repos)
 }
 
-fn get_workdir_for_clean_repos(repo: &Repository) -> Result<Option<&Path>, Box<dyn Error>> {
+enum Action<'a> {
+    Pull(&'a Path),
+    Fetch(&'a Path),
+}
+
+impl<'a> Action<'a> {
+    fn workdir(&self) -> &Path {
+        match self {
+            Action::Pull(path) => path,
+            Action::Fetch(path) => path,
+        }
+    }
+
+    fn verb(&self) -> &str {
+        match self {
+            Action::Pull(_) => "pull",
+            Action::Fetch(_) => "fetch",
+        }
+    }
+}
+
+fn get_action(repo: &Repository) -> Result<Option<Action>, Box<dyn Error>> {
     if let RepositoryState::Clean = repo.state() {
         if let Ok(statuses) = repo.statuses(None) {
             if statuses.iter().all(|status_entry| {
                 status_entry.status().is_empty() || status_entry.status().is_ignored()
             }) {
                 // println!("Clean git repo at {:?}", repo.path());
-                Ok(repo.workdir())
-            } else {
-                println!("Skipping unclean git repo at {:?}", repo.path());
-                Ok(None)
+                if let Some(path) = repo.workdir() {
+                    return Ok(Some(Action::Pull(path)));
+                }
             }
-        } else {
-            Ok(None)
         }
-    } else {
-        // Ignore repos that are not clean
-        println!("Skipping unclean git repo at {:?}", repo.path());
-        Ok(None)
     }
+    Ok(None)
+}
+
+fn execute_action(exe: &Executor, action: &Action) -> Task<Result<Output, io::Error>> {
+    let workdir = action.workdir().to_owned();
+    let verb = action.verb().to_owned();
+    exe.spawn(async move {
+        println!("Pulling {}", workdir.display());
+        Command::new("git")
+            .arg("-C")
+            .arg(workdir)
+            .arg(verb)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()
+            .await
+    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -60,24 +91,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("Input {:?} is not a directory", path);
     }
     let repos = discover_git_repos(path)?;
-    let workdirs: Vec<&Path> = repos
+    let workdirs: Vec<Action> = repos
         .iter()
-        .filter_map(|repo| get_workdir_for_clean_repos(repo).ok().flatten())
+        .filter_map(|repo| get_action(repo).ok().flatten())
         .collect();
     let exe = Executor::new();
-    let tasks = workdirs.iter().map(|workdir| {
-        exe.spawn(async move {
-            println!("Pulling {}", workdir.display());
-            Command::new("git")
-                .arg("-C")
-                .arg(workdir)
-                .arg("pull")
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .output()
-                .await
-        })
-    });
+    let tasks = workdirs.iter().map(|action| execute_action(&exe, action));
     block_on(exe.run(join_all(tasks)));
     Ok(())
 }
