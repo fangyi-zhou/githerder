@@ -62,6 +62,13 @@ fn get_action(repo: &Repository) -> Result<Option<Action>, Box<dyn Error>> {
             }
         }
     }
+    if let Ok(remotes) = repo.remotes() {
+        if !remotes.is_empty() {
+            if let Some(path) = repo.workdir() {
+                return Ok(Some(Action::Fetch(path)));
+            }
+        }
+    }
     Ok(None)
 }
 
@@ -69,7 +76,7 @@ fn execute_action(exe: &Executor, action: &Action) -> Task<Result<Output, io::Er
     let workdir = action.workdir().to_owned();
     let verb = action.verb().to_owned();
     exe.spawn(async move {
-        println!("Pulling {}", workdir.display());
+        println!("{}ing {}", verb, workdir.display());
         Command::new("git")
             .arg("-C")
             .arg(workdir)
