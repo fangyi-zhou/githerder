@@ -47,6 +47,13 @@ impl<'a> Action<'a> {
             Action::Fetch(_) => "fetch",
         }
     }
+
+    fn additional_options(&self) -> Vec<&'static str> {
+        match self {
+            Action::Pull(_) => vec!["--ff-only"],
+            Action::Fetch(_) => vec![],
+        }
+    }
 }
 
 fn get_action(repo: &Repository) -> Result<Option<Action>, Box<dyn Error>> {
@@ -75,12 +82,14 @@ fn get_action(repo: &Repository) -> Result<Option<Action>, Box<dyn Error>> {
 fn execute_action(exe: &Executor, action: &Action) -> Task<Result<Output, io::Error>> {
     let workdir = action.workdir().to_owned();
     let verb = action.verb().to_owned();
+    let opts = action.additional_options().to_owned();
     exe.spawn(async move {
         println!("{}ing {}", verb, workdir.display());
         Command::new("git")
             .arg("-C")
             .arg(workdir)
             .arg(verb)
+            .args(opts)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .output()
