@@ -28,6 +28,34 @@ fn discover_git_repos(dir: &Path) -> Result<Vec<Repository>, io::Error> {
     Ok(repos)
 }
 
+fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
+    let path = repo.path();
+    println!("Processing {:?}", path);
+    if !repo.head_detached()? {
+        let head = repo.head()?;
+        let head_name = head.name().unwrap();
+        // println!("HEAD is {:?}", head_name);
+        if head.is_branch() {
+            // Fetch the remote branch
+            let remote_name = repo.branch_upstream_remote(head_name)?;
+            let branch_name = repo.branch_upstream_name(head_name)?;
+            // println!("remote is {:?}", remote?.as_str());
+            // println!("branch is {:?}", branch?.as_str());
+            let mut remote = repo.find_remote(remote_name.as_str().unwrap()).unwrap();
+            println!("remote is found {:?}", remote.name());
+            remote.fetch(&[branch_name.as_str().unwrap()], None, None);
+            println!("Fetched");
+        } else {
+            println!("{:?}: no remote tracking branch, skipping", path);
+        }
+        Ok(())
+    } else {
+        // Detached head, do nothing
+        println!("{:?}: detached HEAD, skipping", path);
+        Ok(())
+    }
+}
+
 enum Action<'a> {
     Pull(&'a Path),
     Fetch(&'a Path),
@@ -107,12 +135,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("Input {:?} is not a directory", path);
     }
     let repos = discover_git_repos(path)?;
-    let workdirs: Vec<Action> = repos
-        .iter()
-        .filter_map(|repo| get_action(repo).ok().flatten())
-        .collect();
+    // let workdirs: Vec<Action> = repos
+    //     .iter()
+    //     .filter_map(|repo| get_action(repo).ok().flatten())
+    //     .collect();
     let exe = Executor::new();
-    let tasks = workdirs.iter().map(|action| execute_action(&exe, action));
-    block_on(exe.run(join_all(tasks)));
+    repos.iter().try_for_each(process_repository)?;
+    // block_on(exe.run(join_all(tasks)));
     Ok(())
 }
