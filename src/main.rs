@@ -6,7 +6,7 @@ use async_executor::{Executor, Task};
 use async_process::{Command, Output, Stdio};
 use futures::executor::block_on;
 use futures::future::join_all;
-use git2::{Repository, RepositoryState};
+use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, RepositoryState};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -43,7 +43,26 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
             // println!("branch is {:?}", branch?.as_str());
             let mut remote = repo.find_remote(remote_name.as_str().unwrap()).unwrap();
             println!("remote is found {:?}", remote.name());
-            remote.fetch(&[branch_name.as_str().unwrap()], None, None);
+
+            // Set authentication callback
+            // https://docs.rs/git2/latest/git2/struct.RemoteCallbacks.html
+            let mut callbacks = RemoteCallbacks::new();
+            callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                Cred::ssh_key(
+                    username_from_url.unwrap(),
+                    None,
+                    std::path::Path::new(&format!("{}/.ssh/id_rsa", env::var("HOME").unwrap())),
+                    None,
+                )
+            });
+            let mut fetch_options = FetchOptions::new();
+            fetch_options.remote_callbacks(callbacks);
+
+            remote.fetch(
+                &[branch_name.as_str().unwrap()],
+                Some(&mut fetch_options),
+                None,
+            )?;
             println!("Fetched");
         } else {
             println!("{:?}: no remote tracking branch, skipping", path);
