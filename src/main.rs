@@ -41,10 +41,7 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
             // Fetch the remote branch
             let remote_name = repo.branch_upstream_remote(head_name)?;
             let branch_name = repo.branch_upstream_name(head_name)?;
-            // println!("remote is {:?}", remote?.as_str());
-            // println!("branch is {:?}", branch?.as_str());
             let mut remote = repo.find_remote(remote_name.as_str().unwrap()).unwrap();
-            println!("remote is found {:?}", remote.name());
 
             // Set authentication callback
             // https://docs.rs/git2/latest/git2/struct.RemoteCallbacks.html
@@ -65,20 +62,19 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
                 Some(&mut fetch_options),
                 None,
             )?;
-            println!("Fetched");
 
-            let fetch_head = repo.find_reference("FETCH_HEAD")?;
-            let commit = repo.reference_to_annotated_commit(&fetch_head)?;
-            println!("FETCH_HEAD is {}", commit.refname().unwrap());
+            if let Ok(fetched) = repo.find_reference(branch_name.as_str().unwrap()) {
+                let commit = repo.reference_to_annotated_commit(&fetched)?;
 
-            // Perform a merge analysis, and only fast forward
-            let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
-            if analysis_result.is_fast_forward() {
-                println!("{:?}: fast forwardable", path);
-            } else if analysis_result.is_up_to_date() {
-                println!("{:?}: already up to date", path);
-            } else if analysis_result.is_normal() {
-                println!("{:?}: ATTENTION: merging is necessary", path);
+                // Perform a merge analysis, and only fast forward
+                let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
+                if analysis_result.is_fast_forward() {
+                    println!("{:?}: fast forwardable", path);
+                } else if analysis_result.is_up_to_date() {
+                    println!("{:?}: already up to date", path);
+                } else if analysis_result.is_normal() {
+                    println!("{:?}: ATTENTION: merging is necessary", path);
+                }
             }
         } else {
             println!("{:?}: no remote tracking branch, skipping", path);
