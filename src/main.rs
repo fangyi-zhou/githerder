@@ -29,6 +29,8 @@ fn discover_git_repos(dir: &Path) -> Result<Vec<Repository>, io::Error> {
 }
 
 fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
+    // See the git pull example
+    // https://github.com/rust-lang/git2-rs/blob/master/examples/pull.rs
     let path = repo.path();
     println!("Processing {:?}", path);
     if !repo.head_detached()? {
@@ -64,6 +66,20 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
                 None,
             )?;
             println!("Fetched");
+
+            let fetch_head = repo.find_reference("FETCH_HEAD")?;
+            let commit = repo.reference_to_annotated_commit(&fetch_head)?;
+            println!("FETCH_HEAD is {}", commit.refname().unwrap());
+
+            // Perform a merge analysis, and only fast forward
+            let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
+            if analysis_result.is_fast_forward() {
+                println!("{:?}: fast forwardable", path);
+            } else if analysis_result.is_up_to_date() {
+                println!("{:?}: already up to date", path);
+            } else if analysis_result.is_normal() {
+                println!("{:?}: ATTENTION: merging is necessary", path);
+            }
         } else {
             println!("{:?}: no remote tracking branch, skipping", path);
         }
