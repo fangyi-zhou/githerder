@@ -32,7 +32,7 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
     // See the git pull example
     // https://github.com/rust-lang/git2-rs/blob/master/examples/pull.rs
     let path = repo.path();
-    println!("Processing {:?}", path);
+    let path_str = path.to_string_lossy();
     if !repo.head_detached()? {
         let head = repo.head()?;
         let head_name = head.name().unwrap();
@@ -69,22 +69,22 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
                 // Perform a merge analysis, and only fast forward
                 let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
                 if analysis_result.is_fast_forward() {
-                    println!("{:?}: fast forwardable", path);
+                    println!("{}: fast forwardable", path_str);
                 } else if analysis_result.is_up_to_date() {
-                    println!("{:?}: already up to date", path);
+                    println!("{}: already up to date", path_str);
                 } else if analysis_result.is_normal() {
-                    println!("{:?}: ATTENTION: merging is necessary", path);
+                    println!("{}: ATTENTION: merging is necessary", path_str);
                 }
+            } else {
+                println!("{}: no remote tracking branch, skipping", path_str);
             }
         } else {
-            println!("{:?}: no remote tracking branch, skipping", path);
+            println!("{}: HEAD not point to a branch, skipping", path_str);
         }
-        Ok(())
     } else {
-        // Detached head, do nothing
-        println!("{:?}: detached HEAD, skipping", path);
-        Ok(())
+        println!("{}: cannot find HEAD, skipping", path_str);
     }
+    Ok(())
 }
 
 enum Action<'a> {
