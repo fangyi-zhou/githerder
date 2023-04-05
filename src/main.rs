@@ -33,47 +33,49 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
     // https://github.com/rust-lang/git2-rs/blob/master/examples/pull.rs
     let path = repo.path();
     let path_str = path.to_string_lossy();
-    if !repo.head_detached()? {
-        let head = repo.head()?;
+    if let Ok(head) = repo.head() {
         let head_name = head.name().unwrap();
         // println!("HEAD is {:?}", head_name);
         if head.is_branch() {
-            // Fetch the remote branch
-            let remote_name = repo.branch_upstream_remote(head_name)?;
-            let branch_name = repo.branch_upstream_name(head_name)?;
-            let mut remote = repo.find_remote(remote_name.as_str().unwrap()).unwrap();
+            // HEAD is pointing to a branch
 
-            // Set authentication callback
-            // https://docs.rs/git2/latest/git2/struct.RemoteCallbacks.html
-            let mut callbacks = RemoteCallbacks::new();
-            callbacks.credentials(|_url, username_from_url, _allowed_types| {
-                Cred::ssh_key(
-                    username_from_url.unwrap(),
-                    None,
-                    std::path::Path::new(&format!("{}/.ssh/id_rsa", env::var("HOME").unwrap())),
-                    None,
-                )
-            });
-            let mut fetch_options = FetchOptions::new();
-            fetch_options.remote_callbacks(callbacks);
+            if let (Ok(remote_name_buf), Ok(remote_ref_buf)) = (
+                repo.branch_upstream_remote(head_name),
+                repo.branch_upstream_name(head_name),
+            ) {
+                let remote_name = remote_name_buf.as_str().unwrap();
+                let remote_ref = remote_ref_buf.as_str().unwrap();
 
-            remote.fetch(
-                &[branch_name.as_str().unwrap()],
-                Some(&mut fetch_options),
-                None,
-            )?;
+                let mut remote = repo.find_remote(remote_name).unwrap();
 
-            if let Ok(fetched) = repo.find_reference(branch_name.as_str().unwrap()) {
-                let commit = repo.reference_to_annotated_commit(&fetched)?;
+                // Set authentication callback
+                // https://docs.rs/git2/latest/git2/struct.RemoteCallbacks.html
+                let mut callbacks = RemoteCallbacks::new();
+                callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                    Cred::ssh_key(
+                        username_from_url.unwrap(),
+                        None,
+                        std::path::Path::new(&format!("{}/.ssh/id_rsa", env::var("HOME").unwrap())),
+                        None,
+                    )
+                });
+                let mut fetch_options = FetchOptions::new();
+                fetch_options.remote_callbacks(callbacks);
 
-                // Perform a merge analysis, and only fast forward
-                let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
-                if analysis_result.is_fast_forward() {
-                    println!("{}: fast forwardable", path_str);
-                } else if analysis_result.is_up_to_date() {
-                    println!("{}: already up to date", path_str);
-                } else if analysis_result.is_normal() {
-                    println!("{}: ATTENTION: merging is necessary", path_str);
+                remote.fetch(&[remote_ref], Some(&mut fetch_options), None)?;
+
+                if let Ok(fetched) = repo.find_reference(remote_ref) {
+                    let commit = repo.reference_to_annotated_commit(&fetched)?;
+
+                    // Perform a merge analysis, and only fast forward
+                    let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
+                    if analysis_result.is_fast_forward() {
+                        println!("{}: fast forwardable", path_str);
+                    } else if analysis_result.is_up_to_date() {
+                        println!("{}: already up to date", path_str);
+                    } else if analysis_result.is_normal() {
+                        println!("{}: ATTENTION: merging is necessary", path_str);
+                    }
                 }
             } else {
                 println!("{}: no remote tracking branch, skipping", path_str);
