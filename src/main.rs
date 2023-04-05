@@ -6,6 +6,7 @@ use async_executor::{Executor, Task};
 use async_process::{Command, Output, Stdio};
 use futures::executor::block_on;
 use futures::future::join_all;
+use git2::build::CheckoutBuilder;
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, RepositoryState};
 use std::env;
 use std::error::Error;
@@ -33,7 +34,7 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
     // https://github.com/rust-lang/git2-rs/blob/master/examples/pull.rs
     let path = repo.path();
     let path_str = path.to_string_lossy();
-    if let Ok(head) = repo.head() {
+    if let Ok(mut head) = repo.head() {
         let head_name = head.name().unwrap();
         // println!("HEAD is {:?}", head_name);
         if head.is_branch() {
@@ -70,7 +71,18 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
                     // Perform a merge analysis, and only fast forward
                     let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
                     if analysis_result.is_fast_forward() {
-                        println!("{}: fast forwardable", path_str);
+                        println!("{}: fast forwarding", path_str);
+                        let reflog = format!(
+                            "Fast-Forward by githerder: Setting {} to id: {}",
+                            head_name,
+                            commit.id()
+                        );
+                        head.set_target(commit.id(), &reflog)?;
+                        repo.set_head(&head.name().unwrap())?;
+
+                        let mut checkout_builder = CheckoutBuilder::new();
+                        checkout_builder.force();
+                        repo.checkout_head(Some(&mut checkout_builder))?;
                     } else if analysis_result.is_up_to_date() {
                         println!("{}: already up to date", path_str);
                     } else if analysis_result.is_normal() {
