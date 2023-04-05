@@ -3,11 +3,10 @@ extern crate async_process;
 extern crate futures;
 extern crate git2;
 use async_executor::{Executor, Task};
-use async_process::{Command, Output, Stdio};
 use futures::executor::block_on;
 use futures::future::join_all;
 use git2::build::CheckoutBuilder;
-use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, RepositoryState};
+use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -29,7 +28,7 @@ fn discover_git_repos(dir: &Path) -> Result<Vec<Repository>, io::Error> {
     Ok(repos)
 }
 
-fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
+fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error + Send + Sync>> {
     // See the git pull example
     // https://github.com/rust-lang/git2-rs/blob/master/examples/pull.rs
     let path = repo.path();
@@ -63,6 +62,7 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
                 let mut fetch_options = FetchOptions::new();
                 fetch_options.remote_callbacks(callbacks);
 
+                println!("{}: fetching", path_str);
                 remote.fetch(&[remote_ref], Some(&mut fetch_options), None)?;
 
                 if let Ok(fetched) = repo.find_reference(remote_ref) {
@@ -101,76 +101,14 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-enum Action<'a> {
-    Pull(&'a Path),
-    Fetch(&'a Path),
+fn process_repo_task(
+    exe: &Executor,
+    repo: Repository,
+) -> Task<Result<(), Box<dyn Error + Send + Sync>>> {
+    exe.spawn(async move { process_repository(&repo) })
 }
 
-impl<'a> Action<'a> {
-    fn workdir(&self) -> &Path {
-        match self {
-            Action::Pull(path) => path,
-            Action::Fetch(path) => path,
-        }
-    }
-
-    fn verb(&self) -> &str {
-        match self {
-            Action::Pull(_) => "pull",
-            Action::Fetch(_) => "fetch",
-        }
-    }
-
-    fn additional_options(&self) -> Vec<&'static str> {
-        match self {
-            Action::Pull(_) => vec!["--ff-only"],
-            Action::Fetch(_) => vec![],
-        }
-    }
-}
-
-fn get_action(repo: &Repository) -> Result<Option<Action>, Box<dyn Error>> {
-    if let RepositoryState::Clean = repo.state() {
-        if let Ok(statuses) = repo.statuses(None) {
-            if statuses.iter().all(|status_entry| {
-                status_entry.status().is_empty() || status_entry.status().is_ignored()
-            }) {
-                // println!("Clean git repo at {:?}", repo.path());
-                if let Some(path) = repo.workdir() {
-                    return Ok(Some(Action::Pull(path)));
-                }
-            }
-        }
-    }
-    if let Ok(remotes) = repo.remotes() {
-        if !remotes.is_empty() {
-            if let Some(path) = repo.workdir() {
-                return Ok(Some(Action::Fetch(path)));
-            }
-        }
-    }
-    Ok(None)
-}
-
-fn execute_action(exe: &Executor, action: &Action) -> Task<Result<Output, io::Error>> {
-    let workdir = action.workdir().to_owned();
-    let verb = action.verb().to_owned();
-    let opts = action.additional_options().to_owned();
-    exe.spawn(async move {
-        println!("{}ing {}", verb, workdir.display());
-        Command::new("git")
-            .arg("-C")
-            .arg(workdir)
-            .arg(verb)
-            .args(opts)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .output()
-            .await
-    })
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let dir = match env::args().nth(1) {
         Some(dir) => dir,
         None => String::from("."),
@@ -185,7 +123,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     //     .filter_map(|repo| get_action(repo).ok().flatten())
     //     .collect();
     let exe = Executor::new();
-    repos.iter().try_for_each(process_repository)?;
-    // block_on(exe.run(join_all(tasks)));
-    Ok(())
+    let tasks = repos.into_iter().map(|repo| process_repo_task(&exe, repo));
+    block_on(exe.run(join_all(tasks)))
+        .into_iter()
+        .reduce(Result::or)
+        .unwrap()
 }
