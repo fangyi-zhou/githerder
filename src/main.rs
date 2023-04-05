@@ -78,7 +78,7 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error + Send + Sy
                             commit.id()
                         );
                         head.set_target(commit.id(), &reflog)?;
-                        repo.set_head(&head.name().unwrap())?;
+                        repo.set_head(head.name().unwrap())?;
 
                         let mut checkout_builder = CheckoutBuilder::new();
                         checkout_builder.force();
