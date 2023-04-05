@@ -3,7 +3,8 @@ extern crate futures;
 extern crate git2;
 use async_executor::{Executor, Task};
 use futures::executor::block_on;
-use futures::future::join_all;
+use futures::stream::FuturesUnordered;
+use futures::stream::StreamExt;
 use git2::build::CheckoutBuilder;
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use std::env;
@@ -122,9 +123,20 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     //     .filter_map(|repo| get_action(repo).ok().flatten())
     //     .collect();
     let exe = Executor::new();
-    let tasks = repos.into_iter().map(|repo| process_repo_task(&exe, repo));
-    block_on(exe.run(join_all(tasks)))
+    // https://www.philipdaniels.com/blog/2019/async-std-demo1/
+    let mut tasks: FuturesUnordered<_> = repos
         .into_iter()
-        .reduce(Result::or)
-        .unwrap()
+        .map(|repo| process_repo_task(&exe, repo))
+        .collect();
+    block_on(async {
+        while let Some(ret) = tasks.next().await {
+            match ret {
+                Ok(()) => {
+                    // Everything is okay
+                }
+                Err(e) => println!("Got error {:?}", e),
+            }
+        }
+    });
+    Ok(())
 }
