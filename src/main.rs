@@ -1,5 +1,4 @@
 extern crate async_executor;
-extern crate async_process;
 extern crate futures;
 extern crate git2;
 use async_executor::{Executor, Task};
