@@ -2,7 +2,7 @@ extern crate easy_parallel;
 extern crate git2;
 use easy_parallel::Parallel;
 use git2::build::CheckoutBuilder;
-use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
+use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, RepositoryState};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -61,29 +61,42 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error + Send + Sy
                 println!("{}: fetching", path_str);
                 remote.fetch(&[remote_ref], Some(&mut fetch_options), None)?;
 
-                if let Ok(fetched) = repo.find_reference(remote_ref) {
-                    let commit = repo.reference_to_annotated_commit(&fetched)?;
+                if let RepositoryState::Clean = repo.state() {
+                    if let Ok(statuses) = repo.statuses(None) {
+                        if statuses.iter().all(|status_entry| {
+                            status_entry.status().is_empty() || status_entry.status().is_ignored()
+                        }) {
+                            // Only proceed when repository is clean
+                            if let Ok(fetched) = repo.find_reference(remote_ref) {
+                                let commit = repo.reference_to_annotated_commit(&fetched)?;
 
-                    // Perform a merge analysis, and only fast forward
-                    let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
-                    if analysis_result.is_fast_forward() {
-                        println!("{}: fast forwarding", path_str);
-                        let reflog = format!(
-                            "Fast-Forward by githerder: Setting {} to id: {}",
-                            head_name,
-                            commit.id()
-                        );
-                        head.set_target(commit.id(), &reflog)?;
-                        repo.set_head(head.name().unwrap())?;
+                                // Perform a merge analysis, and only fast forward
+                                let (analysis_result, _) = repo.merge_analysis(&[&commit])?;
+                                if analysis_result.is_fast_forward() {
+                                    println!("{}: fast forwarding", path_str);
+                                    let reflog = format!(
+                                        "Fast-Forward by githerder: Setting {} to id: {}",
+                                        head_name,
+                                        commit.id()
+                                    );
+                                    head.set_target(commit.id(), &reflog)?;
+                                    repo.set_head(head.name().unwrap())?;
 
-                        let mut checkout_builder = CheckoutBuilder::new();
-                        checkout_builder.force();
-                        repo.checkout_head(Some(&mut checkout_builder))?;
-                    } else if analysis_result.is_up_to_date() {
-                        println!("{}: already up to date", path_str);
-                    } else if analysis_result.is_normal() {
-                        println!("{}: ATTENTION: merging is necessary", path_str);
+                                    let mut checkout_builder = CheckoutBuilder::new();
+                                    checkout_builder.force();
+                                    repo.checkout_head(Some(&mut checkout_builder))?;
+                                } else if analysis_result.is_up_to_date() {
+                                    println!("{}: already up to date", path_str);
+                                } else if analysis_result.is_normal() {
+                                    println!("{}: ATTENTION: merging is necessary", path_str);
+                                }
+                            }
+                        } else {
+                            println!("{}: ATTENTION: repo is dirty", path_str);
+                        }
                     }
+                } else {
+                    println!("{}: ATTENTION: repo is not clean", path_str);
                 }
             } else {
                 println!("{}: no remote tracking branch, skipping", path_str);
