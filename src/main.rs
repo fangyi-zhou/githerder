@@ -1,9 +1,6 @@
-extern crate async_executor;
-extern crate futures;
+extern crate easy_parallel;
 extern crate git2;
-use async_executor::{Executor, Task};
-use futures::executor::block_on;
-use futures::future::join_all;
+use easy_parallel::Parallel;
 use git2::build::CheckoutBuilder;
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use std::env;
@@ -100,13 +97,6 @@ fn process_repository(repo: &Repository) -> Result<(), Box<dyn Error + Send + Sy
     Ok(())
 }
 
-fn process_repo_task(
-    exe: &Executor,
-    repo: Repository,
-) -> Task<Result<(), Box<dyn Error + Send + Sync>>> {
-    exe.spawn(async move { process_repository(&repo) })
-}
-
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let dir = match env::args().nth(1) {
         Some(dir) => dir,
@@ -121,10 +111,8 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     //     .iter()
     //     .filter_map(|repo| get_action(repo).ok().flatten())
     //     .collect();
-    let exe = Executor::new();
-    let tasks = repos.into_iter().map(|repo| process_repo_task(&exe, repo));
-    block_on(exe.run(join_all(tasks)))
-        .into_iter()
-        .reduce(Result::or)
-        .unwrap()
+    let tasks = Parallel::new()
+        .each(repos.into_iter(), |repo| process_repository(&repo))
+        .run();
+    tasks.into_iter().reduce(Result::or).unwrap()
 }
