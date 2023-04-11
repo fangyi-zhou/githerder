@@ -124,6 +124,10 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     //     .iter()
     //     .filter_map(|repo| get_action(repo).ok().flatten())
     //     .collect();
+    if repos.is_empty() {
+        println!("Found no git repository, quitting");
+        return Ok(());
+    }
     let tasks = Parallel::new()
         .each(repos.into_iter(), |repo| process_repository(&repo))
         .run();
